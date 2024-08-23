@@ -71,20 +71,12 @@ class PSMSegLoader(object):
         else:
             return np.float32(
                 self.test[
-                    index
-                    // self.step
-                    * self.win_size : index
-                    // self.step
-                    * self.win_size
+                    index // self.step * self.win_size : index // self.step * self.win_size
                     + self.win_size
                 ]
             ), np.float32(
                 self.test_labels[
-                    index
-                    // self.step
-                    * self.win_size : index
-                    // self.step
-                    * self.win_size
+                    index // self.step * self.win_size : index // self.step * self.win_size
                     + self.win_size
                 ]
             )
@@ -136,20 +128,12 @@ class MSLSegLoader(object):
         else:
             return np.float32(
                 self.test[
-                    index
-                    // self.step
-                    * self.win_size : index
-                    // self.step
-                    * self.win_size
+                    index // self.step * self.win_size : index // self.step * self.win_size
                     + self.win_size
                 ]
             ), np.float32(
                 self.test_labels[
-                    index
-                    // self.step
-                    * self.win_size : index
-                    // self.step
-                    * self.win_size
+                    index // self.step * self.win_size : index // self.step * self.win_size
                     + self.win_size
                 ]
             )
@@ -201,20 +185,12 @@ class SMAPSegLoader(object):
         else:
             return np.float32(
                 self.test[
-                    index
-                    // self.step
-                    * self.win_size : index
-                    // self.step
-                    * self.win_size
+                    index // self.step * self.win_size : index // self.step * self.win_size
                     + self.win_size
                 ]
             ), np.float32(
                 self.test_labels[
-                    index
-                    // self.step
-                    * self.win_size : index
-                    // self.step
-                    * self.win_size
+                    index // self.step * self.win_size : index // self.step * self.win_size
                     + self.win_size
                 ]
             )
@@ -237,7 +213,6 @@ class SMDSegLoader(object):
         self.test_labels = np.load(data_path + "/SMD_test_label.npy")
 
     def __len__(self):
-
         if self.mode == "train":
             return (self.train.shape[0] - self.win_size) // self.step + 1
         elif self.mode == "val":
@@ -264,28 +239,18 @@ class SMDSegLoader(object):
         else:
             return np.float32(
                 self.test[
-                    index
-                    // self.step
-                    * self.win_size : index
-                    // self.step
-                    * self.win_size
+                    index // self.step * self.win_size : index // self.step * self.win_size
                     + self.win_size
                 ]
             ), np.float32(
                 self.test_labels[
-                    index
-                    // self.step
-                    * self.win_size : index
-                    // self.step
-                    * self.win_size
+                    index // self.step * self.win_size : index // self.step * self.win_size
                     + self.win_size
                 ]
             )
 
 
-def get_loader_segment(
-    data_path, batch_size, win_size=100, step=100, mode="train", dataset="KDD"
-):
+def get_loader_segment(data_path, batch_size, win_size=100, step=100, mode="train", dataset="KDD"):
     if dataset == "SMD":
         dataset = SMDSegLoader(data_path, win_size, step, mode)
     elif dataset == "MSL":
@@ -299,7 +264,5 @@ def get_loader_segment(
     if mode == "train":
         shuffle = True
 
-    data_loader = DataLoader(
-        dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0
-    )
+    data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0)
     return data_loader
