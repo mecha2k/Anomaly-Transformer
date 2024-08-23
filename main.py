@@ -51,10 +51,30 @@ if __name__ == "__main__":
     parser.add_argument("--anormly_ratio", type=float, default=0.5)
 
     config = parser.parse_args()
+
+    config.dataset = "MSL"
+
+    if config.dataset == "SMD":
+        config.anormly_ratio = 0.5
+        config.num_epochs = 10
+        config.input_c = 38
+        config.output_c = 38
+        config.data_path = "./datasets/data/SMD"
+    elif config.dataset == "MSL":
+        config.anormly_ratio = 1
+        config.num_epochs = 3
+        config.input_c = 55
+        config.output_c = 55
+        config.data_path = "./datasets/data/MSL"
+
     args = vars(config)
     print("------------ Options -------------")
     for k, v in sorted(args.items()):
         print("%s: %s" % (str(k), str(v)))
     print("-------------- End ----------------")
 
+    main(config)
+
+    config.mode = "test"
+    config.pretrained_model = 20
     main(config)
