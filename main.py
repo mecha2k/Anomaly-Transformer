@@ -73,7 +73,7 @@ if __name__ == "__main__":
         print("%s: %s" % (str(k), str(v)))
     print("-------------- End ----------------")
 
-    main(config)
+    # main(config)
 
     config.mode = "test"
     config.pretrained_model = 20

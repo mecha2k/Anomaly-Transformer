@@ -23,6 +23,40 @@ def adjust_learning_rate(optimizer, epoch, lr_):
         print("Updating learning rate to {}".format(lr))
 
 
+def association_discrepancy(series, prior, win_size=100):
+    prior_d = torch.unsqueeze(torch.sum(prior, dim=-1), dim=-1)
+    prior_d = prior_d.repeat(1, 1, 1, win_size)
+    series1 = my_kl_loss(series, (prior / prior_d).detach())
+    series2 = my_kl_loss((prior / prior_d).detach(), series)
+    priors1 = my_kl_loss((prior / prior_d), series.detach())
+    priors2 = my_kl_loss(series.detach(), (prior / prior_d))
+    return torch.mean(series1 + series2), torch.mean(priors1 + priors2)
+
+
+def association_discrepancy_t(series, prior, win_size=100, temperature=50):
+    prior_d = torch.unsqueeze(torch.sum(prior, dim=-1), dim=-1)
+    prior_d = prior_d.repeat(1, 1, 1, win_size)
+    series1 = my_kl_loss(series, (prior / prior_d).detach()) * temperature
+    priors1 = my_kl_loss((prior / prior_d), series.detach()) * temperature
+    series1 = (
+        my_kl_loss(
+            series,
+            (
+                prior / torch.unsqueeze(torch.sum(prior, dim=-1), dim=-1).repeat(1, 1, 1, win_size)
+            ).detach(),
+        )
+        * temperature
+    )
+    priors1 = (
+        my_kl_loss(
+            (prior / torch.unsqueeze(torch.sum(prior, dim=-1), dim=-1).repeat(1, 1, 1, win_size)),
+            series.detach(),
+        )
+        * temperature
+    )
+    return series1, priors1
+
+
 class EarlyStopping:
     def __init__(self, patience=7, verbose=False, dataset_name="", delta=0):
         self.patience = patience
@@ -102,6 +136,18 @@ class Solver(object):
             dataset=self.dataset,
         )
 
+        print("train_loader: ", len(self.train_loader))
+        print("vali_loader: ", len(self.vali_loader))
+        print("test_loader: ", len(self.test_loader))
+        print("thre_loader: ", len(self.thre_loader))
+        print("train_dataset length: ", len(self.train_loader.dataset))
+        print("vali_dataset length: ", len(self.vali_loader.dataset))
+        print("test_dataset length: ", len(self.test_loader.dataset))
+        print("thre_dataset length: ", len(self.thre_loader.dataset))
+
+        x, y = next(iter(self.train_loader))
+        print("train_loader data shape: ", x.shape, y.shape)
+
         self.build_model()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device("mps" if torch.backends.mps.is_available() else device)
@@ -125,57 +171,19 @@ class Solver(object):
         for i, (input_data, _) in enumerate(vali_loader):
             inputs = input_data.float().to(self.device)
             output, series, prior, _ = self.model(inputs)
+
             series_loss = 0.0
-            prior_loss = 0.0
+            priors_loss = 0.0
             for u in range(len(prior)):
-                series_loss += torch.mean(
-                    my_kl_loss(
-                        series[u],
-                        (
-                            prior[u]
-                            / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                1, 1, 1, self.win_size
-                            )
-                        ).detach(),
-                    )
-                ) + torch.mean(
-                    my_kl_loss(
-                        (
-                            prior[u]
-                            / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                1, 1, 1, self.win_size
-                            )
-                        ).detach(),
-                        series[u],
-                    )
-                )
-                prior_loss += torch.mean(
-                    my_kl_loss(
-                        (
-                            prior[u]
-                            / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                1, 1, 1, self.win_size
-                            )
-                        ),
-                        series[u].detach(),
-                    )
-                ) + torch.mean(
-                    my_kl_loss(
-                        series[u].detach(),
-                        (
-                            prior[u]
-                            / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                1, 1, 1, self.win_size
-                            )
-                        ),
-                    )
-                )
+                s_loss, p_loss = association_discrepancy(series[u], prior[u], self.win_size)
+                series_loss += s_loss
+                priors_loss += p_loss
             series_loss = series_loss / len(prior)
-            prior_loss = prior_loss / len(prior)
+            priors_loss = priors_loss / len(prior)
 
             rec_loss = self.criterion(output, inputs)
             loss_1.append((rec_loss - self.k * series_loss).item())
-            loss_2.append((rec_loss + self.k * prior_loss).item())
+            loss_2.append((rec_loss + self.k * priors_loss).item())
 
         return np.average(loss_1), np.average(loss_2)
 
@@ -206,58 +214,19 @@ class Solver(object):
 
                 # calculate Association discrepancy
                 series_loss = 0.0
-                prior_loss = 0.0
+                priors_loss = 0.0
                 for u in range(len(prior)):
-                    series_loss += torch.mean(
-                        my_kl_loss(
-                            series[u],
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ).detach(),
-                        )
-                    ) + torch.mean(
-                        my_kl_loss(
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ).detach(),
-                            series[u],
-                        )
-                    )
-                    prior_loss += torch.mean(
-                        my_kl_loss(
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ),
-                            series[u].detach(),
-                        )
-                    ) + torch.mean(
-                        my_kl_loss(
-                            series[u].detach(),
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ),
-                        )
-                    )
+                    s_loss, p_loss = association_discrepancy(series[u], prior[u], self.win_size)
+                    series_loss += s_loss
+                    priors_loss += p_loss
                 series_loss = series_loss / len(prior)
-                prior_loss = prior_loss / len(prior)
+                priors_loss = priors_loss / len(prior)
 
                 rec_loss = self.criterion(output, inputs)
 
                 loss1_list.append((rec_loss - self.k * series_loss).item())
                 loss1 = rec_loss - self.k * series_loss
-                loss2 = rec_loss + self.k * prior_loss
+                loss2 = rec_loss + self.k * priors_loss
 
                 if (i + 1) % 100 == 0:
                     speed = (time.time() - time_now) / iter_count
@@ -306,61 +275,18 @@ class Solver(object):
             inputs = input_data.float().to(self.device)
             output, series, prior, _ = self.model(inputs)
             loss = torch.mean(criterion(inputs, output), dim=-1)
-            series_loss = 0.0
-            prior_loss = 0.0
-            for u in range(len(prior)):
-                if u == 0:
-                    series_loss = (
-                        my_kl_loss(
-                            series[u],
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ).detach(),
-                        )
-                        * temperature
-                    )
-                    prior_loss = (
-                        my_kl_loss(
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ),
-                            series[u].detach(),
-                        )
-                        * temperature
-                    )
-                else:
-                    series_loss += (
-                        my_kl_loss(
-                            series[u],
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ).detach(),
-                        )
-                        * temperature
-                    )
-                    prior_loss += (
-                        my_kl_loss(
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ),
-                            series[u].detach(),
-                        )
-                        * temperature
-                    )
 
-            metric = torch.softmax((-series_loss - prior_loss), dim=-1)
+            # calculate Association discrepancy
+            series_loss = 0.0
+            priors_loss = 0.0
+            for u in range(len(prior)):
+                s_loss, p_loss = association_discrepancy_t(
+                    series[u], prior[u], self.win_size, temperature=temperature
+                )
+                series_loss += s_loss
+                priors_loss += p_loss
+
+            metric = torch.softmax((-series_loss - priors_loss), dim=-1)
             cri = metric * loss
             cri = cri.detach().cpu().numpy()
             attens_energy.append(cri)
@@ -373,64 +299,18 @@ class Solver(object):
         for i, (input_data, labels) in enumerate(self.thre_loader):
             inputs = input_data.float().to(self.device)
             output, series, prior, _ = self.model(inputs)
-
             loss = torch.mean(criterion(inputs, output), dim=-1)
 
             series_loss = 0.0
-            prior_loss = 0.0
+            priors_loss = 0.0
             for u in range(len(prior)):
-                if u == 0:
-                    series_loss = (
-                        my_kl_loss(
-                            series[u],
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ).detach(),
-                        )
-                        * temperature
-                    )
-                    prior_loss = (
-                        my_kl_loss(
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ),
-                            series[u].detach(),
-                        )
-                        * temperature
-                    )
-                else:
-                    series_loss += (
-                        my_kl_loss(
-                            series[u],
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ).detach(),
-                        )
-                        * temperature
-                    )
-                    prior_loss += (
-                        my_kl_loss(
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ),
-                            series[u].detach(),
-                        )
-                        * temperature
-                    )
-            # Metric
-            metric = torch.softmax((-series_loss - prior_loss), dim=-1)
+                s_loss, p_loss = association_discrepancy_t(
+                    series[u], prior[u], self.win_size, temperature=temperature
+                )
+                series_loss += s_loss
+                priors_loss += p_loss
+
+            metric = torch.softmax((-series_loss - priors_loss), dim=-1)
             cri = metric * loss
             cri = cri.detach().cpu().numpy()
             attens_energy.append(cri)
@@ -438,8 +318,8 @@ class Solver(object):
         attens_energy = np.concatenate(attens_energy, axis=0).reshape(-1)
         test_energy = np.array(attens_energy)
         combined_energy = np.concatenate([train_energy, test_energy], axis=0)
-        thresh = np.percentile(combined_energy, 100 - self.anormly_ratio)
-        print("Threshold :", thresh)
+        threshold = np.percentile(combined_energy, 100 - self.anormly_ratio)
+        print("Threshold :", threshold)
 
         # (3) evaluation on the test set
         test_labels = []
@@ -447,63 +327,18 @@ class Solver(object):
         for i, (input_data, labels) in enumerate(self.thre_loader):
             inputs = input_data.float().to(self.device)
             output, series, prior, _ = self.model(inputs)
-
             loss = torch.mean(criterion(inputs, output), dim=-1)
 
             series_loss = 0.0
-            prior_loss = 0.0
+            priors_loss = 0.0
             for u in range(len(prior)):
-                if u == 0:
-                    series_loss = (
-                        my_kl_loss(
-                            series[u],
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ).detach(),
-                        )
-                        * temperature
-                    )
-                    prior_loss = (
-                        my_kl_loss(
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ),
-                            series[u].detach(),
-                        )
-                        * temperature
-                    )
-                else:
-                    series_loss += (
-                        my_kl_loss(
-                            series[u],
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ).detach(),
-                        )
-                        * temperature
-                    )
-                    prior_loss += (
-                        my_kl_loss(
-                            (
-                                prior[u]
-                                / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(
-                                    1, 1, 1, self.win_size
-                                )
-                            ),
-                            series[u].detach(),
-                        )
-                        * temperature
-                    )
-            metric = torch.softmax((-series_loss - prior_loss), dim=-1)
+                s_loss, p_loss = association_discrepancy_t(
+                    series[u], prior[u], self.win_size, temperature=temperature
+                )
+                series_loss += s_loss
+                priors_loss += p_loss
+
+            metric = torch.softmax((-series_loss - priors_loss), dim=-1)
 
             cri = metric * loss
             cri = cri.detach().cpu().numpy()
@@ -515,46 +350,45 @@ class Solver(object):
         test_energy = np.array(attens_energy)
         test_labels = np.array(test_labels)
 
-        pred = (test_energy > thresh).astype(int)
+        preds = (test_energy > threshold).astype(int)
+        labels = test_labels.astype(int)
 
-        gt = test_labels.astype(int)
-
-        print("pred:   ", pred.shape)
-        print("gt:     ", gt.shape)
+        print("preds :   ", preds.shape)
+        print("labels:   ", labels.shape)
 
         # detection adjustment: please see this issue for more information https://github.com/thuml/Anomaly-Transformer/issues/14
         anomaly_state = False
-        for i in range(len(gt)):
-            if gt[i] == 1 and pred[i] == 1 and not anomaly_state:
+        for i in range(len(labels)):
+            if labels[i] == 1 and preds[i] == 1 and not anomaly_state:
                 anomaly_state = True
                 for j in range(i, 0, -1):
-                    if gt[j] == 0:
+                    if labels[j] == 0:
                         break
                     else:
-                        if pred[j] == 0:
-                            pred[j] = 1
-                for j in range(i, len(gt)):
-                    if gt[j] == 0:
+                        if preds[j] == 0:
+                            preds[j] = 1
+                for j in range(i, len(labels)):
+                    if labels[j] == 0:
                         break
                     else:
-                        if pred[j] == 0:
-                            pred[j] = 1
-            elif gt[i] == 0:
+                        if preds[j] == 0:
+                            preds[j] = 1
+            elif labels[i] == 0:
                 anomaly_state = False
             if anomaly_state:
-                pred[i] = 1
+                preds[i] = 1
 
-        pred = np.array(pred)
-        gt = np.array(gt)
-        print("pred: ", pred.shape)
-        print("gt:   ", gt.shape)
+        preds = np.array(preds)
+        labels = np.array(labels)
+        print("preds :   ", preds.shape)
+        print("labels:   ", labels.shape)
 
         from sklearn.metrics import precision_recall_fscore_support
         from sklearn.metrics import accuracy_score
 
-        accuracy = accuracy_score(gt, pred)
+        accuracy = accuracy_score(labels, preds)
         precision, recall, f_score, support = precision_recall_fscore_support(
-            gt, pred, average="binary"
+            labels, preds, average="binary"
         )
         print(
             "Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f} ".format(

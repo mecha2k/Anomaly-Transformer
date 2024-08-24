@@ -21,7 +21,6 @@ class PSMSegLoader(object):
         self.scaler = StandardScaler()
         data = pd.read_csv(data_path + "/train.csv")
         data = data.values[:, 1:]
-
         data = np.nan_to_num(data)
 
         self.scaler.fit(data)
@@ -30,21 +29,16 @@ class PSMSegLoader(object):
 
         test_data = test_data.values[:, 1:]
         test_data = np.nan_to_num(test_data)
-
         self.test = self.scaler.transform(test_data)
 
         self.train = data
         self.val = self.test
-
         self.test_labels = pd.read_csv(data_path + "/test_label.csv").values[:, 1:]
 
         print("test:", self.test.shape)
         print("train:", self.train.shape)
 
     def __len__(self):
-        """
-        Number of images in the object dataset.
-        """
         if self.mode == "train":
             return (self.train.shape[0] - self.win_size) // self.step + 1
         elif self.mode == "val":
@@ -97,11 +91,8 @@ class MSLSegLoader(object):
         self.train = data
         self.val = self.test
         self.test_labels = np.load(data_path + "/MSL_test_label.npy")
-        print("test:", self.test.shape)
-        print("train:", self.train.shape)
 
     def __len__(self):
-
         if self.mode == "train":
             return (self.train.shape[0] - self.win_size) // self.step + 1
         elif self.mode == "val":
