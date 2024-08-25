@@ -1,12 +1,14 @@
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import time
 from utils.utils import *
 from model.AnomalyTransformer import AnomalyTransformer
-from data_factory.data_loader import get_loader_segment
+from data_factory.data_loader import get_loader_segment, check_dataframe
 
 
 def my_kl_loss(p, q):
@@ -38,22 +40,6 @@ def association_discrepancy_t(series, prior, win_size=100, temperature=50):
     prior_d = prior_d.repeat(1, 1, 1, win_size)
     series1 = my_kl_loss(series, (prior / prior_d).detach()) * temperature
     priors1 = my_kl_loss((prior / prior_d), series.detach()) * temperature
-    series1 = (
-        my_kl_loss(
-            series,
-            (
-                prior / torch.unsqueeze(torch.sum(prior, dim=-1), dim=-1).repeat(1, 1, 1, win_size)
-            ).detach(),
-        )
-        * temperature
-    )
-    priors1 = (
-        my_kl_loss(
-            (prior / torch.unsqueeze(torch.sum(prior, dim=-1), dim=-1).repeat(1, 1, 1, win_size)),
-            series.detach(),
-        )
-        * temperature
-    )
     return series1, priors1
 
 
@@ -135,6 +121,9 @@ class Solver(object):
             mode="thre",
             dataset=self.dataset,
         )
+
+        check_dataframe(self.train_loader.dataset.train_df, mode="train")
+        check_dataframe(self.test_loader.dataset.test_df, mode="test")
 
         print("train_loader: ", len(self.train_loader))
         print("vali_loader: ", len(self.vali_loader))
@@ -295,33 +284,6 @@ class Solver(object):
         train_energy = np.array(attens_energy)
 
         # (2) find the threshold
-        attens_energy = []
-        for i, (input_data, labels) in enumerate(self.thre_loader):
-            inputs = input_data.float().to(self.device)
-            output, series, prior, _ = self.model(inputs)
-            loss = torch.mean(criterion(inputs, output), dim=-1)
-
-            series_loss = 0.0
-            priors_loss = 0.0
-            for u in range(len(prior)):
-                s_loss, p_loss = association_discrepancy_t(
-                    series[u], prior[u], self.win_size, temperature=temperature
-                )
-                series_loss += s_loss
-                priors_loss += p_loss
-
-            metric = torch.softmax((-series_loss - priors_loss), dim=-1)
-            cri = metric * loss
-            cri = cri.detach().cpu().numpy()
-            attens_energy.append(cri)
-
-        attens_energy = np.concatenate(attens_energy, axis=0).reshape(-1)
-        test_energy = np.array(attens_energy)
-        combined_energy = np.concatenate([train_energy, test_energy], axis=0)
-        threshold = np.percentile(combined_energy, 100 - self.anormly_ratio)
-        print("Threshold :", threshold)
-
-        # (3) evaluation on the test set
         test_labels = []
         attens_energy = []
         for i, (input_data, labels) in enumerate(self.thre_loader):
@@ -339,7 +301,6 @@ class Solver(object):
                 priors_loss += p_loss
 
             metric = torch.softmax((-series_loss - priors_loss), dim=-1)
-
             cri = metric * loss
             cri = cri.detach().cpu().numpy()
             attens_energy.append(cri)
@@ -349,12 +310,29 @@ class Solver(object):
         test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
         test_energy = np.array(attens_energy)
         test_labels = np.array(test_labels)
+        combined_energy = np.concatenate([train_energy, test_energy], axis=0)
+        threshold = np.percentile(combined_energy, 100 - self.anormly_ratio)
+        print("Threshold :", threshold)
 
+        # (3) evaluation on the test set
         preds = (test_energy > threshold).astype(int)
         labels = test_labels.astype(int)
 
-        print("preds :   ", preds.shape)
-        print("labels:   ", labels.shape)
+        plt.figure(figsize=(10, 5))
+        plt.plot(train_energy, label="train_energy")
+        plt.plot(test_energy, label="test_energy")
+        plt.axhline(y=threshold, color="r", linestyle="-", label="threshold")
+        plt.ylim(0, 0.1)
+        plt.legend()
+        plt.savefig("./datasets/data/HMC/energy_distribution")
+
+        sample_submission = pd.read_csv("./datasets/data/HMC/sample_submission.csv")
+        sample_submission["anomaly"] = preds
+        sample_submission.to_csv(
+            "./datasets/data/HMC/final_submission.csv", encoding="UTF-8-sig", index=False
+        )
+        print(preds.shape)
+        print(sample_submission["anomaly"].value_counts())
 
         # detection adjustment: please see this issue for more information https://github.com/thuml/Anomaly-Transformer/issues/14
         anomaly_state = False

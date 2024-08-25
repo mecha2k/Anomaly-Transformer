@@ -35,7 +35,6 @@ def main(config):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--num_epochs", type=int, default=10)
     parser.add_argument("--k", type=int, default=3)
@@ -49,10 +48,9 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str, default="./datasets/data/SMD")
     parser.add_argument("--model_save_path", type=str, default="./datasets/checkpoints")
     parser.add_argument("--anormly_ratio", type=float, default=0.5)
-
     config = parser.parse_args()
 
-    config.dataset = "MSL"
+    config.dataset = "HMC"
 
     if config.dataset == "SMD":
         config.anormly_ratio = 0.5
@@ -66,6 +64,12 @@ if __name__ == "__main__":
         config.input_c = 55
         config.output_c = 55
         config.data_path = "./datasets/data/MSL"
+    elif config.dataset == "HMC":
+        config.anormly_ratio = 1
+        config.num_epochs = 3
+        config.input_c = 51
+        config.output_c = 51
+        config.data_path = "./datasets/data/HMC"
 
     args = vars(config)
     print("------------ Options -------------")
@@ -73,7 +77,7 @@ if __name__ == "__main__":
         print("%s: %s" % (str(k), str(v)))
     print("-------------- End ----------------")
 
-    # main(config)
+    main(config)
 
     config.mode = "test"
     config.pretrained_model = 20
