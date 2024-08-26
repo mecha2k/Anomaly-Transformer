@@ -14,6 +14,11 @@ torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
+# torch.set_float32_matmul_precision("high")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("mps" if torch.backends.mps.is_available() else device)
+print(f"{device} is available in torch")
+
 
 def str2bool(v):
     return v.lower() in "true"
@@ -43,6 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_c", type=int, default=38)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--pretrained_model", type=str, default=None)
+    parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--dataset", type=str, default="SMD")
     parser.add_argument("--mode", type=str, default="train", choices=["train", "test"])
     parser.add_argument("--data_path", type=str, default="./datasets/data/SMD")
@@ -50,7 +56,8 @@ if __name__ == "__main__":
     parser.add_argument("--anormly_ratio", type=float, default=0.5)
     config = parser.parse_args()
 
-    config.dataset = "HMC"
+    config.dataset = "SMD"
+    config.device = device
 
     if config.dataset == "SMD":
         config.anormly_ratio = 0.5

@@ -1,14 +1,15 @@
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import numpy as np
-import os
+import pandas as pd
 import time
+import os
 from utils.utils import *
 from model.AnomalyTransformer import AnomalyTransformer
 from data_factory.data_loader import get_loader_segment, check_dataframe
+from pathlib import Path
 
 
 def my_kl_loss(p, q):
@@ -122,8 +123,8 @@ class Solver(object):
             dataset=self.dataset,
         )
 
-        check_dataframe(self.train_loader.dataset.train_df, mode="train")
-        check_dataframe(self.test_loader.dataset.test_df, mode="test")
+        # check_dataframe(self.train_loader.dataset.train_df, mode="train")
+        # check_dataframe(self.test_loader.dataset.test_df, mode="test")
 
         print("train_loader: ", len(self.train_loader))
         print("vali_loader: ", len(self.vali_loader))
@@ -137,10 +138,11 @@ class Solver(object):
         x, y = next(iter(self.train_loader))
         print("train_loader data shape: ", x.shape, y.shape)
 
-        self.build_model()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device("mps" if torch.backends.mps.is_available() else device)
         print(f"{self.device} is available in torch")
+
+        self.build_model()
         self.criterion = nn.MSELoss()
 
     def build_model(self):
@@ -148,19 +150,15 @@ class Solver(object):
             win_size=self.win_size, enc_in=self.input_c, c_out=self.output_c, e_layers=3
         )
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
-
-        if torch.cuda.is_available():
-            self.model.cuda()
+        self.model.to(self.device)
 
     def vali(self, vali_loader):
         self.model.eval()
-
         loss_1 = []
         loss_2 = []
         for i, (input_data, _) in enumerate(vali_loader):
             inputs = input_data.float().to(self.device)
             output, series, prior, _ = self.model(inputs)
-
             series_loss = 0.0
             priors_loss = 0.0
             for u in range(len(prior)):
@@ -169,17 +167,13 @@ class Solver(object):
                 priors_loss += p_loss
             series_loss = series_loss / len(prior)
             priors_loss = priors_loss / len(prior)
-
             rec_loss = self.criterion(output, inputs)
             loss_1.append((rec_loss - self.k * series_loss).item())
             loss_2.append((rec_loss + self.k * priors_loss).item())
-
         return np.average(loss_1), np.average(loss_2)
 
     def train(self):
-
         print("======================TRAIN MODE======================")
-
         time_now = time.time()
         path = self.model_save_path
         if not os.path.exists(path):
@@ -194,7 +188,6 @@ class Solver(object):
             epoch_time = time.time()
             self.model.train()
             for i, (input_data, labels) in enumerate(self.train_loader):
-
                 self.optimizer.zero_grad()
                 iter_count += 1
                 inputs = input_data.float().to(self.device)
@@ -318,21 +311,17 @@ class Solver(object):
         preds = (test_energy > threshold).astype(int)
         labels = test_labels.astype(int)
 
+        img_path = Path("./saved/images")
+        if not img_path.exists():
+            os.makedirs(img_path)
+
         plt.figure(figsize=(10, 5))
         plt.plot(train_energy, label="train_energy")
         plt.plot(test_energy, label="test_energy")
         plt.axhline(y=threshold, color="r", linestyle="-", label="threshold")
         plt.ylim(0, 0.1)
         plt.legend()
-        plt.savefig("./datasets/data/HMC/energy_distribution")
-
-        sample_submission = pd.read_csv("./datasets/data/HMC/sample_submission.csv")
-        sample_submission["anomaly"] = preds
-        sample_submission.to_csv(
-            "./datasets/data/HMC/final_submission.csv", encoding="UTF-8-sig", index=False
-        )
-        print(preds.shape)
-        print(sample_submission["anomaly"].value_counts())
+        plt.savefig(img_path / "energy_distribution")
 
         # detection adjustment: please see this issue for more information https://github.com/thuml/Anomaly-Transformer/issues/14
         anomaly_state = False

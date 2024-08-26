@@ -1,8 +1,7 @@
 import torch
 import os
 import random
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import numpy as np
 import collections

@@ -6,6 +6,8 @@ import math
 from math import sqrt
 import os
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("mps" if torch.backends.mps.is_available() else device)
 
 class TriangularCausalMask:
     def __init__(self, B, L, device="cpu"):
@@ -28,7 +30,7 @@ class AnomalyAttention(nn.Module):
         self.output_attention = output_attention
         self.dropout = nn.Dropout(attention_dropout)
         window_size = win_size
-        self.distances = torch.zeros((window_size, window_size)).cuda()
+        self.distances = torch.zeros((window_size, window_size)).to(device)
         for i in range(window_size):
             for j in range(window_size):
                 self.distances[i][j] = abs(i - j)
@@ -54,7 +56,7 @@ class AnomalyAttention(nn.Module):
             self.distances.unsqueeze(0)
             .unsqueeze(0)
             .repeat(sigma.shape[0], sigma.shape[1], 1, 1)
-            .cuda()
+            .to(device)
         )
         prior = 1.0 / (math.sqrt(2 * math.pi) * sigma) * torch.exp(-(prior**2) / 2 / (sigma**2))
 
