@@ -13,6 +13,7 @@ build/
 develop-eggs/
 dist/
 downloads/
+__pycache__/
 datasets/
 saved/
 eggs/
